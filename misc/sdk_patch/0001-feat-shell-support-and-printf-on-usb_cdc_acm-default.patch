@@ -1,0 +1,279 @@
+From 8c5e0b3eab6e404e448e45e24b91e46d0f0ad214 Mon Sep 17 00:00:00 2001
+From: taorye <taorye@outlook.com>
+Date: Mon, 28 Nov 2022 23:20:39 +0800
+Subject: [PATCH] feat: shell support and printf on usb_cdc_acm default
+
+---
+ Makefile                            |   2 +-
+ bsp/bsp_common/platform/syscalls.c  |   7 ++
+ components/usb_stdio/CMakeLists.txt |  48 ++++++++++
+ components/usb_stdio/usb_stdio.c    | 136 ++++++++++++++++++++++++++++
+ components/usb_stdio/usb_stdio.h    |   3 +
+ tools/cmake/compiler_flags.cmake    |   5 +
+ 6 files changed, 200 insertions(+), 1 deletion(-)
+ create mode 100644 components/usb_stdio/CMakeLists.txt
+ create mode 100644 components/usb_stdio/usb_stdio.c
+ create mode 100644 components/usb_stdio/usb_stdio.h
+
+diff --git a/Makefile b/Makefile
+index d81dd87b..fd959644 100644
+--- a/Makefile
++++ b/Makefile
+@@ -45,6 +45,7 @@ cmake_definition+= -DCONFIG_PRINT_FLOAT=$(SUPPORT_FLOAT)
+ cmake_definition+= -DCONFIG_USB_HS=$(SUPPORT_USB_HS)
+ cmake_definition+= -DCONFIG_HW_SEC_ENG_DISABLE=$(SUPPORT_HW_SEC_ENG_DISABLE)
+ cmake_definition+= -DCONFIG_BLECONTROLLER_LIB=$(SUPPORT_BLECONTROLLER_LIB)
++cmake_definition+= -DCONFIG_USBSTDIO_ENABLE=$(SUPPORT_USBSTDIO_ENABLE)
+ 
+ build:Makefile
+ 	cmake -S . -B build -G "Unix Makefiles" $(cmake_definition)
+@@ -69,4 +70,3 @@ clean:
+ 	$(RM) build
+ 
+ .PHONY:build clean download format help
+-
+diff --git a/bsp/bsp_common/platform/syscalls.c b/bsp/bsp_common/platform/syscalls.c
+index 3ddbdc2a..480eaafc 100644
+--- a/bsp/bsp_common/platform/syscalls.c
++++ b/bsp/bsp_common/platform/syscalls.c
+@@ -199,11 +199,18 @@ int _wait_r(struct _reent *ptr, int *status)
+ _ssize_t _write_r(struct _reent *ptr, int fd, const void *buf, size_t nbytes)
+ {
+ #ifndef CONF_VFS_ENABLE
++#ifndef M0SENSE_USE_USBSTDIO
+     struct device *uart = device_find("debug_log");
+     if ((STDOUT_FILENO == fd) || (STDERR_FILENO == fd)) {
+         device_write(uart, 0, (uint8_t *)buf, nbytes);
+     }
+     return 0;
++#else
++#define CDC_IN_EP 0x82
++    struct device *usb_fs = device_find("usb");
++    usb_dc_ep_write(usb_fs, CDC_IN_EP, (uint8_t *)buf, nbytes, NULL);
++    return 0;
++#endif
+ #else
+     _ssize_t rc;
+ 
+diff --git a/components/usb_stdio/CMakeLists.txt b/components/usb_stdio/CMakeLists.txt
+new file mode 100644
+index 00000000..c31c7581
+--- /dev/null
++++ b/components/usb_stdio/CMakeLists.txt
+@@ -0,0 +1,48 @@
++################# Add global include #################
++list(APPEND ADD_INCLUDE
++${CMAKE_CURRENT_SOURCE_DIR}
++)
++#######################################################
++# list(REMOVE_ITEM ADD_INCLUDE "${CMAKE_CURRENT_SOURCE_DIR}/src/apps/http/fsdata.h"
++# )
++################# Add private include #################
++# list(APPEND ADD_PRIVATE_INCLUDE
++# )
++#######################################################
++
++############## Add current dir source files ###########
++file(GLOB_RECURSE sources
++${CMAKE_CURRENT_SOURCE_DIR}/usb_stdio.c
++${CMAKE_SOURCE_DIR}/bsp/bsp_common/usb/usb_dc.c
++)
++list(APPEND ADD_SRCS  ${sources})
++# aux_source_directory(src ADD_SRCS)
++# list(REMOVE_ITEM ADD_SRCS "${CMAKE_CURRENT_SOURCE_DIR}")
++#######################################################
++# list(REMOVE_ITEM ADD_SRCS "${CMAKE_CURRENT_SOURCE_DIR}/src/apps/http/fsdata.c"
++# )
++
++########### Add required/dependent components #########
++list(APPEND ADD_REQUIREMENTS ${CHIP}_driver usb_stack shell)
++#######################################################
++
++############ Add static libs ##########################
++#list(APPEND ADD_STATIC_LIB "libxxx.a")
++#######################################################
++
++############ Add dynamic libs #########################
++# list(APPEND ADD_DYNAMIC_LIB "libxxx.so"
++# )
++#######################################################
++
++############ Add global compile option ################
++#add components denpend on this component
++#list(APPEND ADD_DEFINITIONS -Dxxx=yyy)
++#######################################################
++
++############ Add private compile option ################
++#add compile option for this component that won't affect other modules
++# list(APPEND ADD_PRIVATE_DEFINITIONS -Dxxx)
++#######################################################
++
++generate_library()
+diff --git a/components/usb_stdio/usb_stdio.c b/components/usb_stdio/usb_stdio.c
+new file mode 100644
+index 00000000..07e05dec
+--- /dev/null
++++ b/components/usb_stdio/usb_stdio.c
+@@ -0,0 +1,136 @@
++#include <hal_usb.h>
++/* usb stack core */
++#include <usbd_core.h>
++/* usb cdc */
++#include <usbd_cdc.h>
++/* shell */
++#include <shell.h>
++
++#define CDC_IN_EP  0x82
++#define CDC_OUT_EP 0x01
++#define CDC_INT_EP 0x83
++
++#define USBD_VID           0xFFFF
++#define USBD_PID           0xFFFF
++#define USBD_MAX_POWER     100
++#define USBD_LANGID_STRING 1033
++
++#define USB_CONFIG_SIZE (9 + CDC_ACM_DESCRIPTOR_LEN)
++
++USB_DESC_SECTION static const uint8_t cdc_descriptor[] = {
++    USB_DEVICE_DESCRIPTOR_INIT(USB_2_0, 0x02, 0x02, 0x01, USBD_VID, USBD_PID, 0x0100, 0x01),
++    USB_CONFIG_DESCRIPTOR_INIT(USB_CONFIG_SIZE, 0x02, 0x01, USB_CONFIG_BUS_POWERED, USBD_MAX_POWER),
++    CDC_ACM_DESCRIPTOR_INIT(0x00, CDC_INT_EP, CDC_OUT_EP, CDC_IN_EP, 0x02),
++    ///////////////////////////////////////
++    /// string0 descriptor
++    ///////////////////////////////////////
++    USB_LANGID_INIT(USBD_LANGID_STRING),
++    ///////////////////////////////////////
++    /// string1 descriptor
++    ///////////////////////////////////////
++    0x12,                       /* bLength */
++    USB_DESCRIPTOR_TYPE_STRING, /* bDescriptorType */
++    'B', 0x00,                  /* wcChar0 */
++    'o', 0x00,                  /* wcChar1 */
++    'u', 0x00,                  /* wcChar2 */
++    'f', 0x00,                  /* wcChar3 */
++    'f', 0x00,                  /* wcChar4 */
++    'a', 0x00,                  /* wcChar5 */
++    'l', 0x00,                  /* wcChar6 */
++    'o', 0x00,                  /* wcChar7 */
++    ///////////////////////////////////////
++    /// string2 descriptor
++    ///////////////////////////////////////
++    0x24,                       /* bLength */
++    USB_DESCRIPTOR_TYPE_STRING, /* bDescriptorType */
++    'B', 0x00,                  /* wcChar0 */
++    'o', 0x00,                  /* wcChar1 */
++    'u', 0x00,                  /* wcChar2 */
++    'f', 0x00,                  /* wcChar3 */
++    'f', 0x00,                  /* wcChar4 */
++    'a', 0x00,                  /* wcChar5 */
++    'l', 0x00,                  /* wcChar6 */
++    'o', 0x00,                  /* wcChar7 */
++    ' ', 0x00,                  /* wcChar8 */
++    'C', 0x00,                  /* wcChar9 */
++    'D', 0x00,                  /* wcChar10 */
++    'C', 0x00,                  /* wcChar11 */
++    ' ', 0x00,                  /* wcChar13 */
++    'D', 0x00,                  /* wcChar14 */
++    'E', 0x00,                  /* wcChar15 */
++    'M', 0x00,                  /* wcChar16 */
++    'O', 0x00,                  /* wcChar17 */
++    ///////////////////////////////////////
++    /// string3 descriptor
++    ///////////////////////////////////////
++    0x16,                       /* bLength */
++    USB_DESCRIPTOR_TYPE_STRING, /* bDescriptorType */
++    '2', 0x00,                  /* wcChar0 */
++    '0', 0x00,                  /* wcChar1 */
++    '2', 0x00,                  /* wcChar2 */
++    '1', 0x00,                  /* wcChar3 */
++    '0', 0x00,                  /* wcChar4 */
++    '3', 0x00,                  /* wcChar5 */
++    '1', 0x00,                  /* wcChar6 */
++    '0', 0x00,                  /* wcChar7 */
++    '0', 0x00,                  /* wcChar8 */
++    '0', 0x00,                  /* wcChar9 */
++#ifdef CONFIG_USB_HS
++    ///////////////////////////////////////
++    /// device qualifier descriptor
++    ///////////////////////////////////////
++    0x0a, USB_DESCRIPTOR_TYPE_DEVICE_QUALIFIER, 0x00, 0x02, 0x02, 0x02, 0x01, 0x40, 0x01, 0x00,
++#endif
++    0x00
++};
++
++static void usbd_cdc_acm_bulk_out(uint8_t ep)
++{
++    uint32_t actual_read_length = 0;
++    uint8_t out_buffer[64];
++
++    if (usbd_ep_read(ep, out_buffer, 64, &actual_read_length) < 0) {
++        MSG("Read DATA Packet failed\r\n");
++        usbd_ep_set_stall(ep);
++        return;
++    }
++    for (uint32_t i = 0; i < actual_read_length; i++) {
++        shell_handler(out_buffer[i]);
++    }
++    usbd_ep_read(ep, NULL, 0, NULL);
++}
++
++static void usbd_cdc_acm_bulk_in(uint8_t ep)
++{
++}
++
++static usbd_class_t cdc_class;
++static usbd_interface_t cdc_cmd_intf;
++static usbd_interface_t cdc_data_intf;
++
++static usbd_endpoint_t cdc_out_ep = { .ep_addr = CDC_OUT_EP, .ep_cb = usbd_cdc_acm_bulk_out };
++
++static usbd_endpoint_t cdc_in_ep = { .ep_addr = CDC_IN_EP, .ep_cb = NULL };
++
++void usb_stdio_init()
++{
++    shell_init();
++    shell_set_print(printf);
++
++    usbd_desc_register(cdc_descriptor);
++
++    usbd_cdc_add_acm_interface(&cdc_class, &cdc_cmd_intf);
++    usbd_cdc_add_acm_interface(&cdc_class, &cdc_data_intf);
++    usbd_interface_add_endpoint(&cdc_data_intf, &cdc_out_ep);
++    usbd_interface_add_endpoint(&cdc_data_intf, &cdc_in_ep);
++
++    extern struct device *usb_dc_init(void);
++    struct device *usb_fs = usb_dc_init();
++
++    if (usb_fs) {
++        device_control(usb_fs, DEVICE_CTRL_SET_INT, (void *)(USB_EP1_DATA_OUT_IT));
++    }
++
++    while (!usb_device_is_configured()) {
++    }
++}
+diff --git a/components/usb_stdio/usb_stdio.h b/components/usb_stdio/usb_stdio.h
+new file mode 100644
+index 00000000..b3616207
+--- /dev/null
++++ b/components/usb_stdio/usb_stdio.h
+@@ -0,0 +1,3 @@
++#pragma once
++
++extern void usb_stdio_init();
+diff --git a/tools/cmake/compiler_flags.cmake b/tools/cmake/compiler_flags.cmake
+index 8269b010..c2f79ab3 100644
+--- a/tools/cmake/compiler_flags.cmake
++++ b/tools/cmake/compiler_flags.cmake
+@@ -19,4 +19,9 @@ endif()
+ # endif()
+ 
+ 
++if(${CHIP} STREQUAL "bl702")
++if(CONFIG_USBSTDIO_ENABLE)
++list(APPEND ADD_DEFINITIONS -DM0SENSE_USE_USBSTDIO)
++endif()
++endif()
+ 
+-- 
+2.38.1
+
