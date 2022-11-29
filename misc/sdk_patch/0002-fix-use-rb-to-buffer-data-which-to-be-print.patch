@@ -1,7 +1,7 @@
 From 30088bb15af6a2cecccc009c5d6286b775baaa65 Mon Sep 17 00:00:00 2001
 From: taorye <taorye@outlook.com>
 Date: Tue, 29 Nov 2022 12:15:02 +0800
-Subject: [PATCH 2/3] fix: use rb to buffer data which to be print
+Subject: [PATCH 2/4] fix: use rb to buffer data which to be print
 
 ---
  bsp/bsp_common/platform/syscalls.c | 15 ++++++++++++---
