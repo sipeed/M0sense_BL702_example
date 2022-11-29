@@ -1,0 +1,146 @@
+From 4061b0682fcc4d765d82407e54e08a4c97102351 Mon Sep 17 00:00:00 2001
+From: taorye <taorye@outlook.com>
+Date: Tue, 29 Nov 2022 15:42:25 +0800
+Subject: [PATCH 3/3] fix: init_seq has not made display ON
+
+1. set inverted mode
+2. use ST7735S for m0sense default and change pinmap
+3. fix draw_str with true width(lcd_max_x)
+---
+ bsp/bsp_common/mcu_lcd/mcu_lcd.c | 13 +++++--------
+ bsp/bsp_common/mcu_lcd/mcu_lcd.h |  5 +++--
+ bsp/bsp_common/mcu_lcd/st7735s.c | 10 +++++++---
+ bsp/bsp_common/mcu_lcd/st7735s.h |  8 ++++----
+ 4 files changed, 19 insertions(+), 17 deletions(-)
+
+diff --git a/bsp/bsp_common/mcu_lcd/mcu_lcd.c b/bsp/bsp_common/mcu_lcd/mcu_lcd.c
+index f7e13bb6..54ff9cd1 100644
+--- a/bsp/bsp_common/mcu_lcd/mcu_lcd.c
++++ b/bsp/bsp_common/mcu_lcd/mcu_lcd.c
+@@ -28,7 +28,7 @@
+ 
+ struct device *lcd_dev_ifs = NULL;
+ 
+-uint8_t lcd_dir = 0;
++static uint8_t lcd_dir = 0;
+ uint8_t lcd_auto_swap_flag = 1;
+ uint16_t lcd_max_x = LCD_W, lcd_max_y = LCD_H;
+ 
+@@ -247,11 +247,8 @@ int lcd_draw_is_busy(void)
+  */
+ int lcd_clear(uint16_t color)
+ {
+-    if (lcd_dir == 0 || lcd_dir == 2) {
+-        lcd_draw_area(0, 0, LCD_W, LCD_H, color);
+-    } else {
+-        lcd_draw_area(0, 0, LCD_H, LCD_W, color);
+-    }
++    lcd_draw_area(0, 0, lcd_max_x, lcd_max_y, color);
++    lcd_draw_area(0, 0, lcd_max_x, lcd_max_y, color);
+     return 0;
+ }
+ 
+@@ -380,11 +377,11 @@ int lcd_draw_str_ascii16(uint16_t x, uint16_t y, lcd_color_t color, lcd_color_t
+ 
+     for (uint16_t i = 0; i < num && str[i]; i++) {
+         if (str[i] < 128) {
+-            if (x > LCD_W - 8) {
++            if (x > lcd_max_x - 8) {
+                 x = x0;
+                 y += 16;
+             }
+-            if (x > LCD_W - 8 || y > LCD_H - 16)
++            if (x > lcd_max_x - 8 || y > lcd_max_y - 16)
+                 break;
+ 
+             ch = str[i];
+diff --git a/bsp/bsp_common/mcu_lcd/mcu_lcd.h b/bsp/bsp_common/mcu_lcd/mcu_lcd.h
+index 6b4ab85b..d3603fd9 100644
+--- a/bsp/bsp_common/mcu_lcd/mcu_lcd.h
++++ b/bsp/bsp_common/mcu_lcd/mcu_lcd.h
+@@ -27,9 +27,9 @@
+ #include "font.h"
+ 
+ // #define MCU_LCD_ILI9341
+-// #define MCU_LCD_ST7735S /* 未验证 */
++#define MCU_LCD_ST7735S /* sipeed已修改并验证 */
+ // #define MCU_LCD_ST7789V
+-#define MCU_LCD_ST7796
++// #define MCU_LCD_ST7796
+ 
+ extern struct device *lcd_dev_ifs;
+ 
+@@ -67,6 +67,7 @@ typedef st7796_spi_color_t lcd_color_t;
+ 
+ extern struct device *lcd_dev_ifs;
+ extern uint8_t lcd_auto_swap_flag;
++extern uint16_t lcd_max_x, lcd_max_y;
+ 
+ int lcd_auto_swap_set(uint8_t flag);
+ int lcd_swap_color_data16(uint16_t *dst, uint16_t *src, uint32_t num);
+diff --git a/bsp/bsp_common/mcu_lcd/st7735s.c b/bsp/bsp_common/mcu_lcd/st7735s.c
+index a880b7a6..6ad19f78 100644
+--- a/bsp/bsp_common/mcu_lcd/st7735s.c
++++ b/bsp/bsp_common/mcu_lcd/st7735s.c
+@@ -48,16 +48,19 @@ const st7735s_init_cmd_t st7735s_init_cmds[] = {
+     { 0xC4, "\x8a\xee", 2 },     /* Power control */
+     { 0xC5, "\x0e", 1 },         /* Power control */
+ 
+-    { 0x20, "\x00", 1 }, /* set non-inverted mode, 16-bit color */
+-    //{ 0x21, "\x00", 1 },  /* set inverted mode */
++    // { 0x20, "\x00", 1 }, /* set non-inverted mode, 16-bit color */
++    { 0x21, "\x00", 1 }, /* set inverted mode */
+     { 0x3A, "\x05", 1 }, /* set color mode */
+     { 0x36, "\xC0", 1 }, /* set MX, MY, RGB mode */
++    { 0x26, "\x04", 1 }, /* set gamma */
+ 
+     { 0xE0, "\x02\x1c\x07\x12\x37\x32\x29\x2d\x29\x25\x2B\x39\x00\x01\x03\x10", 16 }, /* set Gamma Sequence */
+     { 0xE1, "\x03\x1d\x07\x06\x2E\x2C\x29\x2D\x2E\x2E\x37\x3F\x00\x00\x02\x10", 16 }, /* set Gamma Sequence */
+ 
++    { 0x34, NULL, 0 }, /* Tearing Effect Line OFF */
++
+     { 0x13, NULL, 0x80 }, /* Normal display on */
+-    { 0x20, NULL, 0x80 }, /* Display on */
++    { 0x29, NULL, 0x80 }, /* Display on */
+ 
+ };
+ 
+@@ -88,6 +91,7 @@ static int st7735s_spi_init(void)
+         SPI_DEV(spi0)->datasize = SPI_DATASIZE_8BIT;
+         SPI_DEV(spi0)->clk_phase = SPI_PHASE_1EDGE;
+         SPI_DEV(spi0)->fifo_threshold = 0;
++        SPI_DEV(spi0)->pin_swap_enable = false;
+ 
+         device_open(spi0, DEVICE_OFLAG_STREAM_TX | DEVICE_OFLAG_STREAM_RX);
+     } else {
+diff --git a/bsp/bsp_common/mcu_lcd/st7735s.h b/bsp/bsp_common/mcu_lcd/st7735s.h
+index 4d5f4687..3f2964ce 100644
+--- a/bsp/bsp_common/mcu_lcd/st7735s.h
++++ b/bsp/bsp_common/mcu_lcd/st7735s.h
+@@ -26,19 +26,19 @@
+ 
+ #include "bflb_platform.h"
+ 
+-#define ST7735S_CS_PIN GPIO_PIN_10
+-#define ST7735S_DC_PIN GPIO_PIN_22
++#define ST7735S_CS_PIN GPIO_PIN_1
++#define ST7735S_DC_PIN GPIO_PIN_25
+ 
+ #define ST7735S_CS_HIGH gpio_write(ST7735S_CS_PIN, 1)
+ #define ST7735S_CS_LOW  gpio_write(ST7735S_CS_PIN, 0)
+ #define ST7735S_DC_HIGH gpio_write(ST7735S_DC_PIN, 1)
+ #define ST7735S_DC_LOW  gpio_write(ST7735S_DC_PIN, 0)
+ 
+-#define ST7735S_W 128 /* ST7735S LCD width */
++#define ST7735S_W 80 /* ST7735S LCD width */
+ #define ST7735S_H 160 /* ST7735S LCD height */
+ 
+ #define ST7735S_OFFSET_X 0
+-#define ST7735S_OFFSET_Y 0
++#define ST7735S_OFFSET_Y 25
+ 
+ typedef struct {
+     uint8_t cmd;
+-- 
+2.38.1
+
