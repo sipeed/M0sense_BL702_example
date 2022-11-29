@@ -4,12 +4,22 @@ if [ "$1" != "" ]; then
 
     if [ "$1" == "clean" ]; then
     	rm -rf m0sense_apps/**/submodule_commit_info.txt bl_mcu_sdk/{build,out}
-        echo clean the produced files!
+        echo "clean the produced files!"
+        exit
+    fi
+
+    if [ "$1" == "patch" ]; then
+    	cd bl_mcu_sdk
+        git switch -c patch
+        git reset --hard origin/release_v1.4.5
+        git am --signoff --keep-cr ../misc/sdk_patch/*.patch
+        echo "Apply patch for you!"
+        cd ..
         exit
     fi
 
     if [ ! -d "$1" -o ! -f "$1/CMakeLists.txt" ]; then
-        echo no this app project \"$1\"!
+        echo "no this app project \"$1\"!"
         exit
     fi
 
