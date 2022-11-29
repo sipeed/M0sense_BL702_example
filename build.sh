@@ -2,6 +2,12 @@ APP=rtos_demo
 APP_DIR=m0sense_apps
 if [ "$1" != "" ]; then
 
+    if [ "$1" == "clean" ]; then
+    	rm -rf m0sense_apps/**/submodule_commit_info.txt bl_mcu_sdk/{build,out}
+        echo clean the produced files!
+        exit
+    fi
+
     if [ ! -d "$1" -o ! -f "$1/CMakeLists.txt" ]; then
         echo no this app project \"$1\"!
         exit
