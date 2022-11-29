@@ -2,7 +2,7 @@
 /* FreeRTOS */
 #include <FreeRTOS.h>
 #include <task.h>
-/* BL808 Driver*/
+/* BL702 Driver*/
 #include <bflb_platform.h>
 #include <hal_gpio.h>
 /* USB STDIO */

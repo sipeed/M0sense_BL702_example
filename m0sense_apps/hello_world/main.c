@@ -1,4 +1,4 @@
-/* BL808 Driver*/
+/* BL702 Driver*/
 #include <bflb_platform.h>
 /* USB STDIO */
 #include <usb_stdio.h>
