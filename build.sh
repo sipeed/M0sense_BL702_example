@@ -12,7 +12,7 @@ if [ "$1" != "" ]; then
     	cd bl_mcu_sdk
         git switch -c patch
         git reset --hard origin/release_v1.4.5
-        git am --signoff --keep-cr ../misc/sdk_patch/*.patch
+        git am --keep-cr ../misc/sdk_patch/*.patch
         echo "Apply patch for you!"
         cd ..
         exit
