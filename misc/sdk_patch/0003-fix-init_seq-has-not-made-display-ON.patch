@@ -1,11 +1,13 @@
 From 4061b0682fcc4d765d82407e54e08a4c97102351 Mon Sep 17 00:00:00 2001
 From: taorye <taorye@outlook.com>
 Date: Tue, 29 Nov 2022 15:42:25 +0800
-Subject: [PATCH 3/4] fix: init_seq has not made display ON
+Subject: [PATCH 3/5] fix: init_seq has not made display ON
 
 1. set inverted mode
 2. use ST7735S for m0sense default and change pinmap
 3. fix draw_str with true width(lcd_max_x)
+
+Signed-off-by: taorye <taorye@outlook.com>
 ---
  bsp/bsp_common/mcu_lcd/mcu_lcd.c | 13 +++++--------
  bsp/bsp_common/mcu_lcd/mcu_lcd.h |  5 +++--

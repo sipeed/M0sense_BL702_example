@@ -1,9 +1,10 @@
 From 3e1dcddb3bd197c40bdac9f64765d33f9dd399ed Mon Sep 17 00:00:00 2001
 From: taorye <taorye@outlook.com>
 Date: Tue, 29 Nov 2022 19:01:56 +0800
-Subject: [PATCH 4/4] fix: use usbd_ep_write instead of rb to meet the
+Subject: [PATCH 4/5] fix: use usbd_ep_write instead of rb to meet the
  requirement for usb that just transmit 64bytes per time
 
+Signed-off-by: taorye <taorye@outlook.com>
 ---
  bsp/bsp_common/platform/syscalls.c | 18 +++++++-----------
  components/usb_stdio/usb_stdio.c   | 13 +++----------

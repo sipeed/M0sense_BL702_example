@@ -1,0 +1,113 @@
+From cc65afe0af9a26440ed1ac35a8736293b11d92e7 Mon Sep 17 00:00:00 2001
+From: taorye <taorye@outlook.com>
+Date: Tue, 6 Dec 2022 18:17:46 +0800
+Subject: [PATCH 5/5] fix: reuse rb to avoid block or long time delay after
+ mass meseage write to usb fifo
+
+Signed-off-by: taorye <taorye@outlook.com>
+---
+ bsp/bsp_common/platform/syscalls.c | 11 +++--------
+ components/usb_stdio/usb_stdio.c   | 19 +++++++++++++++++--
+ components/usb_stdio/usb_stdio.h   |  5 +++++
+ 3 files changed, 25 insertions(+), 10 deletions(-)
+
+diff --git a/bsp/bsp_common/platform/syscalls.c b/bsp/bsp_common/platform/syscalls.c
+index 3041cfef..e70ac390 100644
+--- a/bsp/bsp_common/platform/syscalls.c
++++ b/bsp/bsp_common/platform/syscalls.c
+@@ -206,14 +206,9 @@ _ssize_t _write_r(struct _reent *ptr, int fd, const void *buf, size_t nbytes)
+     }
+     return 0;
+ #else
+-    size_t remained = nbytes;
+-
+-#define CDC_IN_EP 0x82
+-    while (remained > 64) {
+-        usbd_ep_write(CDC_IN_EP, (uint8_t *)&buf[nbytes - remained], 64, NULL);
+-        remained -= 64;
+-    }
+-    usbd_ep_write(CDC_IN_EP, (uint8_t *)&buf[nbytes - remained], remained, NULL);
++    extern void *usb_stdio_get_tx_rb();
++    extern uint32_t Ring_Buffer_Write_Force(void *rbType, const uint8_t *data, uint32_t length);
++    Ring_Buffer_Write_Force(usb_stdio_get_tx_rb(), buf, nbytes);
+     return 0;
+ #endif
+ #else
+diff --git a/components/usb_stdio/usb_stdio.c b/components/usb_stdio/usb_stdio.c
+index 07e05dec..5f04292b 100644
+--- a/components/usb_stdio/usb_stdio.c
++++ b/components/usb_stdio/usb_stdio.c
+@@ -1,3 +1,5 @@
++#if defined(M0SENSE_USE_USBSTDIO)
++
+ #include <hal_usb.h>
+ /* usb stack core */
+ #include <usbd_core.h>
+@@ -100,8 +102,10 @@ static void usbd_cdc_acm_bulk_out(uint8_t ep)
+     usbd_ep_read(ep, NULL, 0, NULL);
+ }
+ 
++static Ring_Buffer_Type usb_tx_rb;
+ static void usbd_cdc_acm_bulk_in(uint8_t ep)
+ {
++    usb_dc_send_from_ringbuffer(device_find("usb"), &usb_tx_rb, ep);
+ }
+ 
+ static usbd_class_t cdc_class;
+@@ -110,13 +114,17 @@ static usbd_interface_t cdc_data_intf;
+ 
+ static usbd_endpoint_t cdc_out_ep = { .ep_addr = CDC_OUT_EP, .ep_cb = usbd_cdc_acm_bulk_out };
+ 
+-static usbd_endpoint_t cdc_in_ep = { .ep_addr = CDC_IN_EP, .ep_cb = NULL };
++static usbd_endpoint_t cdc_in_ep = { .ep_addr = CDC_IN_EP, .ep_cb = usbd_cdc_acm_bulk_in };
+ 
+ void usb_stdio_init()
+ {
+     shell_init();
+     shell_set_print(printf);
+ 
++#define USB_TX_RINGBUFFER_SIZE (8 * 1024)
++    static uint8_t usb_tx_mem[USB_TX_RINGBUFFER_SIZE] __attribute__((section(".system_ram")));
++    Ring_Buffer_Init(&usb_tx_rb, usb_tx_mem, USB_TX_RINGBUFFER_SIZE, cpu_global_irq_disable, cpu_global_irq_enable);
++
+     usbd_desc_register(cdc_descriptor);
+ 
+     usbd_cdc_add_acm_interface(&cdc_class, &cdc_cmd_intf);
+@@ -128,9 +136,16 @@ void usb_stdio_init()
+     struct device *usb_fs = usb_dc_init();
+ 
+     if (usb_fs) {
+-        device_control(usb_fs, DEVICE_CTRL_SET_INT, (void *)(USB_EP1_DATA_OUT_IT));
++        device_control(usb_fs, DEVICE_CTRL_SET_INT, (void *)(USB_EP1_DATA_OUT_IT | USB_EP2_DATA_IN_IT));
+     }
+ 
+     while (!usb_device_is_configured()) {
+     }
+ }
++
++Ring_Buffer_Type *usb_stdio_get_tx_rb()
++{
++    return &usb_tx_rb;
++}
++
++#endif /* M0SENSE_USE_USBSTDIO */
+\ No newline at end of file
+diff --git a/components/usb_stdio/usb_stdio.h b/components/usb_stdio/usb_stdio.h
+index 5260e624..234745e2 100644
+--- a/components/usb_stdio/usb_stdio.h
++++ b/components/usb_stdio/usb_stdio.h
+@@ -1,5 +1,10 @@
+ #pragma once
+ 
++#if defined(M0SENSE_USE_USBSTDIO)
++
+ #include <ring_buffer.h>
+ 
+ extern void usb_stdio_init();
++extern Ring_Buffer_Type *usb_stdio_get_tx_rb();
++
++#endif /* M0SENSE_USE_USBSTDIO */
+\ No newline at end of file
+-- 
+2.38.1
+
