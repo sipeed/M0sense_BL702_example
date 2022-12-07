@@ -1,3 +1,7 @@
+# y for printf on usb_cdc_acm and n for printf on uart 
+SUPPORT_USBSTDIO_ENABLE=y
+
+
 APP=rtos_demo
 APP_DIR=m0sense_apps
 if [ "$1" != "" ]; then
@@ -24,12 +28,14 @@ if [ "$1" != "" ]; then
     fi
 
     APP=${1##*/}
-    APP_DIR=${1%%/*}
+    APP_DIR=${1%%/$APP}
 
 fi
 
-# y for printf on usb_cdc_acm otherwise printf on uart 
-SUPPORT_USBSTDIO_ENABLE=y
+if [ "${APP_DIR%%/*}" != "m0sense_apps" -a "$SUPPORT_USBSTDIO_ENABLE" == "y" ]; then
+    echo "not support \`SUPPORT_USBSTDIO_ENABLE=y\` yet, please disable it in build.sh!"
+    exit
+fi
 
 cd bl_mcu_sdk
 if [ $SUPPORT_USBSTDIO_ENABLE == "y" -a $(git rev-parse HEAD) == $(git rev-parse origin/release_v1.4.5) ]; then
