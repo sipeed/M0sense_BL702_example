@@ -65,6 +65,19 @@ $ git submodule update --init
 ```
 And then wait for it to finish.
 
+After that, you have to APPLY patch needed.
+
+```bash
+./build.sh patch
+```
+
+If you have not used `GIT`, maybe run this command below first. If you understand what this is, you should know whether to do it.
+
+```bash
+git config user.email "m0sense@sipeed.com"
+git config user.name "tinymaix"
+```
+
 ## 2. Compile in yourself
 
 There are several demos available under `m0sense_apps`. We also provide a shell script named `build.sh`.
@@ -76,5 +89,3 @@ Simply type these below and press Enter, there will be the newest `blink_baremet
 ``` 
 
 Just type `./build.sh m0sense_apps` and press `Tab` more than once, then you can choose what to be compiled after many auto completion until it's directory just like above.
-
-## 3. Update later and later~~ Sorry:)
